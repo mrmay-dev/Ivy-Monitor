@@ -100,6 +100,7 @@ def set_time():
             print('New time has been set!')
             
         except (ValueError, RuntimeError, ConnectionError, OSError) as e:
+            pixel.fill((0, 2550, 0))
             ntp_fail_count += 1
             print(f"Failed to get time. ({ntp_fail_count})\nSkipping.\n\n", e)
             time.sleep(10)
@@ -173,6 +174,7 @@ def publish_all(data_string):
             # microcontroller.reset()
         
         if publish_success:
+            pixel.fill((0, 0, 0))
             publish_time = t_now + publish_interval
             mqtt_fail_count = 0
             print(f'\n\n    ---- DATA PUBLISHED #{mqtt_fail_count} ----\n\n')
@@ -210,6 +212,7 @@ def publish_AQI(aqi_data):
         # microcontroller.reset()
     
     if publish_success:
+        pixel.fill((0, 0, 0))
         publish_aqi_time = t_now + aqi_interval
         mqtt_fail_count = 0
         print(f'\n\n    ---- AQI PUBLISHED #{mqtt_fail_count} ----\n\n')
