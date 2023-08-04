@@ -155,35 +155,38 @@ def disconnect(mqtt_client, userdata, rc):
 
 def publish_all(data_string):
     print(f'\n\n    ---- PUBLISHING DATA ----\n\n')
-    publish_success = False
-    try: 
-        print(f"Connecting to {the_broker}...")
-        io.connect()
-        mqtt_payload = json.dumps(data_string)
-        io.publish(mqtt_topic, mqtt_payload, True)
-        print(f'PUBLISHED TO:\n{mqtt_topic}\n{mqtt_payload}\n')
-        io.disconnect()
-        publish_success = True
-    except Exception as e:
-        print("Error:\n", str(e))
-        print("Retrying later")
-        # microcontroller.reset()
     
-    if publish_success:
-        publish_time = t_now + publish_interval
-        mqtt_fail_count = 0
-        print(f'\n\n    ---- DATA PUBLISHED #{mqtt_fail_count} ----\n\n')
-    else:
-        publish_time = t_now + 60
-        mqtt_fail_count += 1
-        print(f'\n\n    ---- data NOT published #{mqtt_fail_count} (waiting 60s) ----\n\n')
-        if mqtt_fail_count >= 5:
-            print('MQTT publishing has failed critically. Restarting board in 10s.')
-            print('\n\n')
+    publish_success = False
+    while not publish_success:
+        try: 
+            print(f"Connecting to {the_broker}...")
+            io.connect()
+            mqtt_payload = json.dumps(data_string)
+            io.publish(mqtt_topic, mqtt_payload, True)
+            print(f'PUBLISHED TO:\n{mqtt_topic}\n{mqtt_payload}\n')
+            io.disconnect()
+            publish_success = True
+        except Exception as e:
+            print("Error:\n", str(e))
+            print("Retrying later")
+            # microcontroller.reset()
+        
+        if publish_success:
+            publish_time = t_now + publish_interval
+            mqtt_fail_count = 0
+            print(f'\n\n    ---- DATA PUBLISHED #{mqtt_fail_count} ----\n\n')
+        else:
             pixel.fill((255, 0, 0))
-            time.sleep(10)
-            microcontroller.reset()
-            # stop()
+            publish_time = t_now + 10
+            mqtt_fail_count += 1
+            print(f'\n\n    ---- data NOT published #{mqtt_fail_count} (waiting 10s) ----\n\n')
+            if mqtt_fail_count > 6:
+                print(f'MQTT publishing has failed {mqtt_fail_count} times. Trying again in {publish_interval}min.\n\n')
+                time.sleep(5)
+                publish_time = t_now + publish_interval
+                publish_success = True
+                # microcontroller.reset()
+                # stop()
             
     time.sleep(3)
     return(publish_time)
