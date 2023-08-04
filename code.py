@@ -185,9 +185,9 @@ def publish_all(data_string):
             print(f'\n\n    ---- data NOT published #{mqtt_fail_count} (waiting 10s) ----\n\n')
             if mqtt_fail_count > 6:
                 print(f'MQTT publishing has failed {mqtt_fail_count} times. Trying again in {publish_interval}min.\n\n')
-                time.sleep(5)
                 publish_time = t_now + publish_interval
                 publish_success = True
+                time.sleep(2)
                 # microcontroller.reset()
                 # stop()
             
@@ -223,9 +223,9 @@ def publish_AQI(aqi_data):
         print(f'\n\n    ---- AQI NOT published #{mqtt_fail_count} (waiting 60s) ----\n\n')
         if mqtt_fail_count >= 5:
             print('MQTT publishing has failed critically. Skpping, and moving on.\n\n')
-            time.sleep(10)
             publish_aqi_time = t_now + aqi_interval
             publish_success = True
+            time.sleep(2)
             # microcontroller.reset()
             
     time.sleep(3)
