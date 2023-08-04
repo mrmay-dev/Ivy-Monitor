@@ -8,8 +8,21 @@ my_timezone = -7
 plant_name = 'englishivy_70da9e'
 publish_interval = (60 * 30)
 aqi_interval = (60 * 5)
-calibrating_state = True
 
+
+""" SGP30 has a 12 hour calibration window. If set to `True` the sensor will calibrate.
+Otherwise it will attempt to fetch calibration from the `mqtt_topic` set below.
+If no calibration is found, or MQTT fails, it will use calibration_fallback below.
+Regularly updating the fallback values will ensure there is always a reasonable output.
+
+See here for more on calibration:
+https://learn.adafruit.com/adafruit-sgp30-gas-tvoc-eco2-mox-sensor
+"""
+calibrating_state = True
+calibration_fallback = (36515, 37460)  # (eCO2, TVOC)
+
+mqtt_broker = 'ip or address'
+mqtt_port = 1883  # if not using SSL it's usually 1883
 mqtt_username = os.getenv("mqtt_username")
 mqtt_password = os.getenv("mqtt_password")
 mqtt_base = 'mac2010/circuitpython/plants'
@@ -66,6 +79,7 @@ def time_check():
     
 
 def the_time():
+    """this function returns a date string"""
     t_object = time.localtime()
     # tm_wday = 0-6, 0 is Monday
     # tm_mon = 1-12, 1 is January
@@ -74,13 +88,15 @@ def the_time():
 
 
 def set_time():
+    """this function updates the time using ntp.org. """
     ntp_fail_count = 0
-    t_now = 978307200 # Jan 1, 2001 at 12:00:00
-    while t_now <= 978307200:
+    update_success = False 
+    while not update_success:
         try:
             ntp = adafruit_ntp.NTP(pool, server = '0.pool.ntp.org', tz_offset = my_timezone)
             r = rtc.RTC()
             r.datetime = ntp.datetime
+            update_success = True
             print('New time has been set!')
             
         except (ValueError, RuntimeError, ConnectionError, OSError) as e:
@@ -90,8 +106,6 @@ def set_time():
             if ntp_fail_count >= 6:
                 microcontroller.reset()
             continue
-            
-        t_now = time.time()
 
 
 # MQTT Setup
@@ -101,8 +115,8 @@ the_broker = "Mosquitto"
 
 # Initialize a new MQTT Client object
 io = MQTT.MQTT(
-    broker = "10.0.0.48",
-    port = 1883,
+    broker = mqtt_broker,
+    port = mqtt_port,
     username = mqtt_username,
     password = mqtt_password,
     socket_pool = pool,
@@ -126,7 +140,7 @@ def new_message(client, topic, message):
         co2eq_base = a_new_message['sgp30']['baseline_eCO2']
         tvoc_base =  a_new_message['sgp30']['baseline_TVOC']
         
-        sgp.set_iaq_baseline(co2eq_base, tvoc_base) 
+        sgp.set_iaq_baseline(co2eq_base, tvoc_base) calibration_fallback_eCO2
         print(f'\nCalibration set: ({sgp.baseline_eCO2}, {sgp.baseline_TVOC}).')
         
     if calibrating_state:
@@ -293,7 +307,10 @@ if calibrating_state == False:
         except Exception as e:
             error_count += 1
             if error_count > 6:
-                microcontroller.reset() 
+                sgp.set_iaq_baseline(calibration_fallback[0], calibration_fallback[1])
+                print(f'Retried {error_count} times. Using fallback calibration.')
+                # microcontroller.reset()  # ucomment if resetting the microcontroller is preferred
+                break
             print("Error:\n", str(e), "(xerror_count)")
             print("Retrying later")
             time.sleep(10)
