@@ -1,0 +1,7 @@
+CIRCUITPY_WIFI_SSID = "your ssid"
+CIRCUITPY_WIFI_PASSWORD = "wifi password"
+CIRCUITPY_WEB_API_PASSWORD = "a passoword"
+CIRCUITPY_WEB_API_PORT = 80
+
+mqtt_username = "broker username"
+mqtt_password = "broker password"
