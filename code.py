@@ -101,10 +101,11 @@ def set_time():
             
         except (ValueError, RuntimeError, ConnectionError, OSError) as e:
             ntp_fail_count += 1
-            print(f"Failed to get time. ({ntp_fail_count})\nRetry in 10 seconds.\n\n", e)
+            print(f"Failed to get time. ({ntp_fail_count})\nSkipping.\n\n", e)
             time.sleep(10)
             if ntp_fail_count >= 6:
-                microcontroller.reset()
+                update_success = True
+                # microcontroller.reset()
             continue
 
 
@@ -220,7 +221,7 @@ def publish_AQI(aqi_data):
         if mqtt_fail_count >= 5:
             print('MQTT publishing has failed critically. Skpping, and moving on.\n\n')
             time.sleep(10)
-            publish_time = t_now + aqi_interval
+            publish_aqi_time = t_now + aqi_interval
             publish_success = True
             # microcontroller.reset()
             
