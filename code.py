@@ -213,15 +213,16 @@ def publish_AQI(aqi_data):
         mqtt_fail_count = 0
         print(f'\n\n    ---- AQI PUBLISHED #{mqtt_fail_count} ----\n\n')
     else:
+        pixel.fill((255, 0, 0))
         publish_aqi_time = t_now + 60
         mqtt_fail_count += 1
         print(f'\n\n    ---- AQI NOT published #{mqtt_fail_count} (waiting 60s) ----\n\n')
         if mqtt_fail_count >= 5:
-            print('MQTT publishing has failed critically. Restarting board in 10s.')
-            print('\n\n')
-            pixel.fill((255, 0, 0))
+            print('MQTT publishing has failed critically. Skpping, and moving on.\n\n')
             time.sleep(10)
-            microcontroller.reset()
+            publish_time = t_now + aqi_interval
+            publish_success = True
+            # microcontroller.reset()
             
     time.sleep(3)
     return(publish_aqi_time)
