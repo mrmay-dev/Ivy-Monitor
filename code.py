@@ -7,8 +7,7 @@ import os
 my_timezone = -7
 plant_name = 'englishivy_70da9e'
 publish_interval = (60 * 30)
-aqi_interval = (60 * 5)
-
+aqi_interval = (60 * 15)
 
 """ SGP30 has a 12 hour calibration window. If set to `True` the sensor will calibrate.
 Otherwise it will attempt to fetch calibration from the `mqtt_topic` set below.
@@ -18,10 +17,11 @@ Regularly updating the fallback values will ensure there is always a reasonable 
 See here for more on calibration:
 https://learn.adafruit.com/adafruit-sgp30-gas-tvoc-eco2-mox-sensor
 """
-calibrating_state = True
-calibration_fallback = (36515, 37460)  # (eCO2, TVOC)
+calibrating_state = False
+calibration_fallback = (36172, 37415)  # (eCO2, TVOC)
 
-mqtt_broker = 'ip or address'
+mqtt_broker = '10.0.0.48'
+# mqtt_broker = 'one'
 mqtt_port = 1883  # if not using SSL it's usually 1883
 mqtt_username = os.getenv("mqtt_username")
 mqtt_password = os.getenv("mqtt_password")
@@ -40,6 +40,7 @@ import busio
 import json
 import microcontroller
 import rtc
+import random
 
 # Hardware
 import neopixel
@@ -50,14 +51,14 @@ from adafruit_seesaw.seesaw import Seesaw
 
 # Networking
 import wifi
+import ipaddress
 import socketpool
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
 import adafruit_ntp
 
+
 # Variables
 publish_time = None
-mqtt_fail_count = 0
-
 
 # ----------------------
 # Setup
@@ -66,8 +67,6 @@ start = time.monotonic()
 pool = socketpool.SocketPool(wifi.radio)
 
 
-# NTP Time Setup
-# -------------------------
 days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
 
@@ -93,7 +92,8 @@ def set_time():
     update_success = False 
     while not update_success:
         try:
-            ntp = adafruit_ntp.NTP(pool, server = '0.pool.ntp.org', tz_offset = my_timezone)
+            print('\ngetting time')
+            ntp = adafruit_ntp.NTP(pool, server = ntp_selection, tz_offset = my_timezone)
             r = rtc.RTC()
             r.datetime = ntp.datetime
             update_success = True
@@ -102,14 +102,16 @@ def set_time():
         except (ValueError, RuntimeError, ConnectionError, OSError) as e:
             pixel.fill((0, 2550, 0))
             ntp_fail_count += 1
-            print(f"Failed to get time. ({ntp_fail_count})\nSkipping.\n\n", e)
-            time.sleep(10)
-            if ntp_fail_count >= 6:
+            if ntp_fail_count > 2:
+                print(f"\n\nSkipping. Tried to get time {ntp_fail_count-1} times.\n\n", e)
                 update_success = True
+                continue
                 # microcontroller.reset()
+            print(f"Failed to get time. ({ntp_fail_count})\nTrying again.\n\n", e)
+            time.sleep(2)
             continue
-
-
+   
+   
 # MQTT Setup
 # -------------------------------------------------------
 
@@ -122,6 +124,7 @@ io = MQTT.MQTT(
     username = mqtt_username,
     password = mqtt_password,
     socket_pool = pool,
+    connect_retries = 3,
     # ssl_context = ssl.create_default_context(),
 )
 
@@ -139,11 +142,11 @@ def new_message(client, topic, message):
     time_now = time.time()
     if not calibrating_state:
         a_new_message = json.loads(message)
-        co2eq_base = a_new_message['sgp30']['baseline_eCO2']
-        tvoc_base =  a_new_message['sgp30']['baseline_TVOC']
+        co2eq_base = a_new_message['baseline_eCO2']
+        tvoc_base =  a_new_message['baseline_TVOC']
         
-        sgp.set_iaq_baseline(co2eq_base, tvoc_base) calibration_fallback_eCO2
-        print(f'\nCalibration set: ({sgp.baseline_eCO2}, {sgp.baseline_TVOC}).')
+        sgp.set_iaq_baseline(co2eq_base, tvoc_base) 
+        print(f'\nCalibration set with MQTT: ({sgp.baseline_eCO2}, {sgp.baseline_TVOC}).')
         
     if calibrating_state:
         print(f'Calibrating: {sgp30_calibration_time - time_now} seconds remaining.')
@@ -157,7 +160,7 @@ def disconnect(mqtt_client, userdata, rc):
 
 def publish_all(data_string):
     print(f'\n\n    ---- PUBLISHING DATA ----\n\n')
-    
+    mqtt_fail_count = 0
     publish_success = False
     while not publish_success:
         try: 
@@ -167,36 +170,28 @@ def publish_all(data_string):
             io.publish(mqtt_topic, mqtt_payload, True)
             print(f'PUBLISHED TO:\n{mqtt_topic}\n{mqtt_payload}\n')
             io.disconnect()
-            publish_success = True
-        except Exception as e:
-            print("Error:\n", str(e))
-            print("Retrying later")
-            # microcontroller.reset()
-        
-        if publish_success:
             pixel.fill((0, 0, 0))
             publish_time = t_now + publish_interval
             mqtt_fail_count = 0
             print(f'\n\n    ---- DATA PUBLISHED #{mqtt_fail_count} ----\n\n')
-        else:
+            publish_success = True
+        except Exception as e:
             pixel.fill((255, 0, 0))
-            publish_time = t_now + 10
+            print("Error:\n", str(e))
+            publish_time = t_now + 5
             mqtt_fail_count += 1
-            print(f'\n\n    ---- data NOT published #{mqtt_fail_count} (waiting 10s) ----\n\n')
-            if mqtt_fail_count > 6:
+            print(f'\n\n    ---- data NOT published #{mqtt_fail_count} ----\n\n')
+            if mqtt_fail_count > 1:
                 print(f'MQTT publishing has failed {mqtt_fail_count} times. Trying again in {publish_interval}min.\n\n')
                 publish_time = t_now + publish_interval
                 publish_success = True
-                time.sleep(2)
-                # microcontroller.reset()
-                # stop()
-            
-    time.sleep(3)
+ 
     return(publish_time)
     
 
 def publish_AQI(aqi_data):
     print(f'\n\n    ---- PUBLISHING AQI ----\n\n')
+    mqtt_fail_count = 0
     publish_success = False
     try: 
         print(f"Connecting to {the_broker}...")
@@ -205,30 +200,23 @@ def publish_AQI(aqi_data):
         io.publish(mqtt_topic_aqi, aqi_payload, True)
         print(f'PUBLISHED TO:\n{mqtt_topic_aqi}\n{aqi_payload}\n')
         io.disconnect()
-        publish_success = True
-    except Exception as e:
-        print("Error:\n", str(e))
-        print("Retrying later")
-        # microcontroller.reset()
-    
-    if publish_success:
         pixel.fill((0, 0, 0))
         publish_aqi_time = t_now + aqi_interval
         mqtt_fail_count = 0
         print(f'\n\n    ---- AQI PUBLISHED #{mqtt_fail_count} ----\n\n')
-    else:
-        pixel.fill((255, 0, 0))
-        publish_aqi_time = t_now + 60
+        publish_success = True
+    except Exception as e:
+        print("Error:\n", str(e))
+        pixel.fill((255, 0, 180))
+        publish_aqi_time = t_now + 5
         mqtt_fail_count += 1
-        print(f'\n\n    ---- AQI NOT published #{mqtt_fail_count} (waiting 60s) ----\n\n')
-        if mqtt_fail_count >= 5:
+        print(f'\n\n    ---- AQI NOT published #{mqtt_fail_count} ----\n\n')
+        if mqtt_fail_count >= 1:
             print('MQTT publishing has failed critically. Skpping, and moving on.\n\n')
             publish_aqi_time = t_now + aqi_interval
             publish_success = True
-            time.sleep(2)
             # microcontroller.reset()
             
-    time.sleep(3)
     return(publish_aqi_time)
     
     
@@ -300,6 +288,7 @@ set_time()
 sgp30_calibration_time = None
 if calibrating_state:
     sgp30_calibration_time = time.time() + (12*60*60)
+    print(f'Currently calibrating till: {sgp30_calibration_time}')
 if calibrating_state == False:
     sgp30_calibration_time = 0
     error_count = 0
@@ -308,20 +297,27 @@ if calibrating_state == False:
         try: 
             print(f"\nConnecting to {the_broker}...")
             io.connect()
-            io.subscribe(mqtt_topic)
+            io.subscribe(mqtt_topic_aqi)
             io.loop()
             io.disconnect()
             update_success = True
+            using_fallback =  False
         except Exception as e:
+            pixel.fill((0,0,255))
             error_count += 1
-            if error_count > 6:
+            if error_count > 2:
                 sgp.set_iaq_baseline(calibration_fallback[0], calibration_fallback[1])
                 print(f'Retried {error_count} times. Using fallback calibration.')
+                
+                sgp.set_iaq_baseline(calibration_fallback[0], calibration_fallback[1])
+                print(f"\n\nCalibration set using FALLBACK settings: {sgp.get_iaq_baseline()}\n\n")
+                time.sleep(3)
+                using_fallback = True
                 # microcontroller.reset()  # ucomment if resetting the microcontroller is preferred
                 break
-            print("Error:\n", str(e), "(xerror_count)")
+            print("Error:\n", str(e), "(x{error_count})")
             print("Retrying later")
-            time.sleep(10)
+            time.sleep(2)
 
 running_since = the_time()
 
@@ -334,6 +330,7 @@ sgp30_calibration_time = {sgp30_calibration_time}
             mqtt_topic = {mqtt_topic}
          baseline_eCO2 = {sgp.baseline_eCO2}
          baseline_TVOC = {sgp.baseline_TVOC}
+        using_fallback = {using_fallback}
 """
 print(device_info)
 
@@ -345,16 +342,15 @@ while counter > 0:
 print('\n\n')
 
 
-
 # ----------------------------------------
 # Main Loop
 # ----------------------------------------
 t_now = time.time()
 # sgp30_calibration_time = t_now + (60*5)
 # publish_interval = 60*3
-# publish_time = t_now + publish_interval
+# publish_tme = t_now + publish_interval
 publish_time = t_now + warmup_time  # warmup sensors before first publish
-publish_aqi_time = t_now + warmup_time + 10
+publish_aqi_time = t_now + warmup_time + 20
 
 while True:
     if t_now > sgp30_calibration_time:
@@ -371,7 +367,6 @@ while True:
     
     data_string = {
         'ip_address': f'{wifi.radio.ipv4_address}',
-        'mqtt_fail_count': mqtt_fail_count,
         "running_since": running_since,
         "now_time": now_time,
         "UTC_time": UTC_time,
@@ -397,6 +392,7 @@ while True:
             "baseline_eCO2": baseline_eCO2,
             "eCO2": eCO2,
             "TVOC": TVOC,
+            'using_fallback': using_fallback,
             },
     }
 
@@ -407,13 +403,19 @@ while True:
     if publish_aqi_time < t_now:
         aqi_data = {
             "UTC_time": UTC_time,
+            "calibrating_state": calibrating_state,
             "baseline_TVOC": baseline_TVOC,
             "baseline_eCO2": baseline_eCO2,
             "eCO2": eCO2,
             "TVOC": TVOC,
-            }
-        
+            'using_fallback': using_fallback,
+            }     
         publish_aqi_time = publish_AQI(aqi_data)
+
+        # w = write; a = append
+        with open("/data.txt", "w") as fp:
+           fp.write(f" {json.dumps(aqi_data)} \n")
+
     
     if publish_time < t_now:
         publish_time = publish_all(data_string)
@@ -421,4 +423,3 @@ while True:
     gc.collect()
     t_now = time.time()
     time.sleep(1)
-
