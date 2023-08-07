@@ -7,7 +7,7 @@ import os
 my_timezone = -7
 plant_name = 'englishivy_70da9e'
 publish_interval = (60 * 30)
-aqi_interval = (60 * 15)
+aqi_interval = publish_interval
 
 """ SGP30 has a 12 hour calibration window. If set to `True` the sensor will calibrate.
 Otherwise it will attempt to fetch calibration from the `mqtt_topic` set below.
@@ -20,8 +20,7 @@ https://learn.adafruit.com/adafruit-sgp30-gas-tvoc-eco2-mox-sensor
 calibrating_state = False
 calibration_fallback = (36172, 37415)  # (eCO2, TVOC)
 
-mqtt_broker = '10.0.0.48'
-# mqtt_broker = 'one'
+mqtt_broker = 'broker addresss'
 mqtt_port = 1883  # if not using SSL it's usually 1883
 mqtt_username = os.getenv("mqtt_username")
 mqtt_password = os.getenv("mqtt_password")
@@ -29,7 +28,7 @@ mqtt_base = 'mac2010/circuitpython/plants'
 mqtt_topic = f'{mqtt_base}/{plant_name}'
 mqtt_topic_aqi = f'{mqtt_base}/{plant_name}/sgp30'
 
-warmup_time = 60 * 2
+warmup_time = 60 * 2  # time sensors will run before first data publish
 
 # Modules
 # -------------------------
@@ -41,6 +40,7 @@ import json
 import microcontroller
 import rtc
 import random
+import math
 
 # Hardware
 import neopixel
@@ -60,6 +60,7 @@ import adafruit_ntp
 # Variables
 publish_time = None
 
+
 # ----------------------
 # Setup
 # ----------------------
@@ -67,6 +68,8 @@ start = time.monotonic()
 pool = socketpool.SocketPool(wifi.radio)
 
 
+# NTP Time Setup
+# -------------------------
 days = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
 
@@ -93,7 +96,7 @@ def set_time():
     while not update_success:
         try:
             print('\ngetting time')
-            ntp = adafruit_ntp.NTP(pool, server = ntp_selection, tz_offset = my_timezone)
+            ntp = adafruit_ntp.NTP(pool, tz_offset = my_timezone)
             r = rtc.RTC()
             r.datetime = ntp.datetime
             update_success = True
@@ -110,8 +113,7 @@ def set_time():
             print(f"Failed to get time. ({ntp_fail_count})\nTrying again.\n\n", e)
             time.sleep(2)
             continue
-   
-   
+        
 # MQTT Setup
 # -------------------------------------------------------
 
@@ -201,9 +203,9 @@ def publish_AQI(aqi_data):
         print(f'PUBLISHED TO:\n{mqtt_topic_aqi}\n{aqi_payload}\n')
         io.disconnect()
         pixel.fill((0, 0, 0))
-        publish_aqi_time = t_now + aqi_interval
         mqtt_fail_count = 0
         print(f'\n\n    ---- AQI PUBLISHED #{mqtt_fail_count} ----\n\n')
+        publish_aqi_time = t_now + publish_time + (60*15)
         publish_success = True
     except Exception as e:
         print("Error:\n", str(e))
@@ -213,7 +215,8 @@ def publish_AQI(aqi_data):
         print(f'\n\n    ---- AQI NOT published #{mqtt_fail_count} ----\n\n')
         if mqtt_fail_count >= 1:
             print('MQTT publishing has failed critically. Skpping, and moving on.\n\n')
-            publish_aqi_time = t_now + aqi_interval
+            publish_aqi_time = t_now + publish_time + (60*15)
+            # publish_aqi_time = t_now + aqi_interval
             publish_success = True
             # microcontroller.reset()
             
@@ -350,7 +353,8 @@ t_now = time.time()
 # publish_interval = 60*3
 # publish_tme = t_now + publish_interval
 publish_time = t_now + warmup_time  # warmup sensors before first publish
-publish_aqi_time = t_now + warmup_time + 20
+publish_aqi_time = t_now + warmup_time + math.floor(aqi_interval * .5)
+
 
 while True:
     if t_now > sgp30_calibration_time:
